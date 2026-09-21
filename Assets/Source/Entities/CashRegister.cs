@@ -5,44 +5,73 @@ using UnityEngine;
 public class CashRegister : MonoBehaviour
 {
     [SerializeField] Player _player;
-    [SerializeField, Min(0f)] float _distanceForService;
+    [SerializeField, Min(0f)] float _distanceForService = 0.35f;
+    [SerializeField] bool _automaticService;
+    [SerializeField] string _saveId;
     [Space]
     [SerializeField] Transform _queueFirstPosition;
     [SerializeField] Transform _queueSecondPosition;
     [Space]
     [SerializeField] Transform _boxPosition;
-    [Header("Mini Mart cash pickup")]
+    [Header("Cash pickup")]
     [SerializeField] CashPickup _cashPickupPrefab;
     [SerializeField] Transform _cashSpawnPosition;
 
-    Queue<Customer> _customersQueue = new();
+    readonly Queue<Customer> _customersQueue = new();
+
     Vector3 _startPosition;
     Vector3 _offset;
     Customer _currentCustomer;
+    CashPickup _cashPickup;
+    int _pendingCash;
+    string _saveKey;
 
     private void Awake()
     {
+        if (!_player)
+            _player = FindObjectOfType<Player>();
+
         _Prepare();
+        _saveKey = SaveKeyUtility.ForComponent(this, "register", _saveId);
+        _pendingCash = Mathf.Max(0, SaveGameStore.GetInt(_saveKey + "/cash", 0));
+    }
+
+    private void Start()
+    {
+        _EnsureCashPickup();
+    }
+
+    private void Update()
+    {
+        if (_automaticService && !_currentCustomer)
+            _TryToServeCustomer();
     }
 
     private void _Prepare()
     {
-        _startPosition = _queueFirstPosition.position;
-        _offset = _queueSecondPosition.position - _startPosition;
+        if (_queueFirstPosition && _queueSecondPosition)
+        {
+            _startPosition = _queueFirstPosition.position;
+            _offset = _queueSecondPosition.position - _startPosition;
+        }
+    }
+
+    public void SetAutomaticService(bool value)
+    {
+        _automaticService = value;
     }
 
     public void SubscribeOnCustomer(Customer customer)
     {
-        customer.OnControlTransferred += EnqueueCustomer;
-    }
-
-    private void _UnsubscribeFromCustomer(Customer customer)
-    {
-        customer.OnControlTransferred -= EnqueueCustomer;
+        if (customer != null)
+            customer.OnControlTransferred += EnqueueCustomer;
     }
 
     public void EnqueueCustomer(Customer customer)
     {
+        if (!customer || _customersQueue.Contains(customer))
+            return;
+
         _customersQueue.Enqueue(customer);
         _MoveCustomers();
     }
@@ -52,80 +81,127 @@ public class CashRegister : MonoBehaviour
         int i = 0;
         foreach (Customer customer in _customersQueue)
         {
-            customer.SetDestination(_startPosition + i * _offset);
+            if (customer)
+                customer.SetDestination(_startPosition + i * _offset);
             i++;
         }
     }
 
     private void _TryToServeCustomer()
     {
-        if (_customersQueue.TryPeek(out Customer customer))
-        {
-            if (customer.GetRemainingDistance() <= _distanceForService)
-            {
-                _currentCustomer = customer;
-                StartCoroutine(_Serve());
-            }
-        }
+        if (_currentCustomer || !_boxPosition)
+            return;
+
+        while (_customersQueue.Count > 0 && !_customersQueue.Peek())
+            _customersQueue.Dequeue();
+
+        if (!_customersQueue.TryPeek(out Customer customer))
+            return;
+
+        float remainingDistance = customer.GetRemainingDistance();
+        if (float.IsInfinity(remainingDistance) || remainingDistance > _distanceForService)
+            return;
+
+        _currentCustomer = customer;
+        StartCoroutine(_Serve());
     }
 
     private IEnumerator _Serve()
     {
-        _currentCustomer.Box.SetActive(true);
-        _currentCustomer.Box.ChangeableParent.SetParent(_boxPosition);
-
-        float animationDuration = _currentCustomer.Box.TranslationAnimator
-            .DefaultAnimationSettings.AnimationDuration;
-
-        yield return new WaitForSeconds(animationDuration);
-
-        while (_currentCustomer.Inventory.HasItems())
+        Customer customer = _currentCustomer;
+        if (!customer)
         {
-            VegetableInventory.TransferVegetables(
-                _currentCustomer.Inventory,
-                _currentCustomer.Box.VegetableInventory);
-
-            yield return new WaitForSeconds(
-                _currentCustomer.Box.VegetableInventory.AddingCooldown);
+            _currentCustomer = null;
+            yield break;
         }
 
-        _currentCustomer.ReturnBoxToParent();
+        customer.Box.SetActive(true);
+        customer.Box.ChangeableParent.SetParent(_boxPosition);
+
+        float animationDuration = customer.Box.TranslationAnimator &&
+                                  customer.Box.TranslationAnimator.DefaultAnimationSettings
+            ? customer.Box.TranslationAnimator.DefaultAnimationSettings.AnimationDuration
+            : 0.15f;
+
         yield return new WaitForSeconds(animationDuration);
 
-        int money = _currentCustomer.RequiredQuantity *
-            _currentCustomer.TargetVegetable.PricePerUnit;
+        VegetableInventory checkoutInventory = customer.Box.VegetableInventory;
+        float timeout = 5f;
 
-        _CreateCash(money);
+        while (customer && customer.Inventory.HasItems() && checkoutInventory.HasFreeSpace() && timeout > 0f)
+        {
+            VegetableInventory.TryTransferVegetable(customer.Inventory, checkoutInventory);
+            float wait = Mathf.Max(0.02f, checkoutInventory.AddingCooldown);
+            timeout -= wait;
+            yield return new WaitForSeconds(wait);
+        }
 
-        _currentCustomer.OnMoneyPaid();
+        if (!customer)
+        {
+            _currentCustomer = null;
+            yield break;
+        }
+
+        customer.ReturnBoxToParent();
+        yield return new WaitForSeconds(animationDuration);
+
+        int money = Mathf.Max(0, customer.RequiredQuantity * customer.TargetVegetable.PricePerUnit);
+        _AddPendingCash(money);
+
+        customer.OnMoneyPaid();
         _currentCustomer = null;
-        _customersQueue.Dequeue();
+
+        if (_customersQueue.Count > 0)
+            _customersQueue.Dequeue();
+
         _MoveCustomers();
     }
 
-    private void _CreateCash(int amount)
+    private void _AddPendingCash(int amount)
     {
-        if (_cashPickupPrefab && _cashSpawnPosition)
-        {
-            CashPickup pickup = Instantiate(
-                _cashPickupPrefab,
-                _cashSpawnPosition.position,
-                _cashSpawnPosition.rotation);
+        if (amount <= 0)
+            return;
 
-            pickup.Initialize(_player.Account, amount);
-        }
-        else
+        long total = (long)_pendingCash + amount;
+        _pendingCash = (int)Mathf.Min(int.MaxValue, total);
+        SaveGameStore.SetInt(_saveKey + "/cash", _pendingCash);
+        _EnsureCashPickup();
+    }
+
+    private void _EnsureCashPickup()
+    {
+        if (_pendingCash <= 0)
+            return;
+
+        if (_cashPickup)
         {
-            // Backwards-compatible fallback until the cash prefab is wired in.
-            _player.Account.AddMoney(amount);
+            _cashPickup.SetAmount(_pendingCash);
+            return;
         }
+
+        Vector3 position = _cashSpawnPosition ? _cashSpawnPosition.position : transform.position + transform.right * 0.8f;
+
+        _cashPickup = _cashPickupPrefab
+            ? Instantiate(_cashPickupPrefab, position, Quaternion.identity)
+            : CashPickup.CreateRuntime(position);
+
+        _cashPickup.Initialize(_player ? _player.Account : null, _pendingCash, _OnCashCollected);
+    }
+
+    private void _OnCashCollected(int amount)
+    {
+        _pendingCash = Mathf.Max(0, _pendingCash - amount);
+        SaveGameStore.SetInt(_saveKey + "/cash", _pendingCash);
+        _cashPickup = null;
     }
 
     private void OnTriggerStay(Collider other)
     {
-        if (_currentCustomer) return;
+        if (_automaticService || _currentCustomer)
+            return;
 
-        if (other.TryGetComponent(out Player player))
+        Player player = other.GetComponentInParent<Player>();
+        if (player && player == _player)
             _TryToServeCustomer();
     }
 }
