@@ -29,8 +29,8 @@ for meta in ASSETS.rglob("*.meta"):
     guids[guid] = meta.relative_to(ROOT)
 
 build_settings = (ROOT / "ProjectSettings" / "EditorBuildSettings.asset").read_text(encoding="utf-8")
-if "enabled: 1" not in build_settings or "Assets/Scenes/SampleScene.unity" not in build_settings:
-    errors.append("SampleScene is not enabled in EditorBuildSettings.")
+if "enabled: 1" not in build_settings or "Assets/Scenes/OriNabiji.unity" not in build_settings:
+    errors.append("OriNabiji scene is not enabled in EditorBuildSettings.")
 
 player_settings = (ROOT / "ProjectSettings" / "ProjectSettings.asset").read_text(encoding="utf-8")
 if "\\n" in player_settings:

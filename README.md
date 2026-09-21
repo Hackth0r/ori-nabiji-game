@@ -10,7 +10,7 @@ The target is an original Georgian supermarket-management game using the proven 
 
 - Unity project imported with upstream MIT attribution preserved.
 - Android/iOS production identifiers and mobile-oriented player settings.
-- Main gameplay scene enabled in Build Settings.
+- Production scene `Assets/Scenes/OriNabiji.unity` enabled in Build Settings.
 - Persistent local save system with atomic file writes and autosave on pause/focus loss/quit.
 - Persistent player money, purchase-pad progress/unlocks, and uncollected checkout cash.
 - Progressive stand-on purchase pads rather than click-to-buy.
