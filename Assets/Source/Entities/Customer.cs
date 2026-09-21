@@ -9,71 +9,104 @@ public class Customer : Entity
     {
         TakeVegetables = 0,
         PayForVegetables = 1,
-        Leave = 2
+        Leave = 2,
+        Idle = 3
     }
 
     [SerializeField] NavMeshAgent _meshAgent;
-    [field: SerializeField] public CustomerStates CurrentState { get; private set; }
+    [field: SerializeField] public CustomerStates CurrentState { get; private set; } = CustomerStates.Idle;
     [field: SerializeField] public Box Box { get; private set; }
     [SerializeField] Transform _boxParent;
+
     public UnityEvent<int, VegetableSettings> OnTaskReceived;
     public UnityEvent OnRequiredQuantityReached;
     public event Action<Customer> OnControlTransferred;
     public UnityEvent OnTaskCompleted;
+
     public int RequiredQuantity { get; private set; }
     public VegetableSettings TargetVegetable { get; private set; }
-    Vector3 _shelfPosition;
+
     Vector3 _exitPosition;
+
+    private void Awake()
+    {
+        if (!_meshAgent)
+            _meshAgent = GetComponent<NavMeshAgent>();
+    }
 
     public void ReturnBoxToParent()
     {
-        Box.ChangeableParent.SetParent(_boxParent);
+        if (Box && Box.ChangeableParent)
+            Box.ChangeableParent.SetParent(_boxParent);
     }
 
     public void SetDestination(Vector3 destination)
     {
-        _meshAgent.SetDestination(destination);
+        if (_meshAgent && _meshAgent.isOnNavMesh)
+            _meshAgent.SetDestination(destination);
     }
 
     public float GetRemainingDistance()
     {
+        if (!_meshAgent || !_meshAgent.isOnNavMesh || _meshAgent.pathPending)
+            return float.PositiveInfinity;
+
         return _meshAgent.remainingDistance;
     }
 
-    public void SetTask(Vector3 shelfPosition, Vector3 exitPosition, VegetableSettings targetVegetable, int requiredQuantity)
+    public void SetTask(
+        Vector3 shelfPosition,
+        Vector3 exitPosition,
+        VegetableSettings targetVegetable,
+        int requiredQuantity)
     {
-        _shelfPosition = shelfPosition;
-        _exitPosition = exitPosition;
         TargetVegetable = targetVegetable;
+        _exitPosition = exitPosition;
+
+        if (!Inventory || !TargetVegetable || Inventory.GetCapacity() <= 0)
+        {
+            CurrentState = CustomerStates.Leave;
+            SetDestination(_exitPosition);
+            return;
+        }
+
         Inventory.SetTargetVegetableSettings(TargetVegetable);
-        RequiredQuantity = Math.Min(requiredQuantity, Inventory.GetCapacity());
+        RequiredQuantity = Mathf.Clamp(requiredQuantity, 1, Inventory.GetCapacity());
         Inventory.AllowTakingVegetables();
-        SetDestination(_shelfPosition);
-        OnTaskReceived.Invoke(RequiredQuantity, TargetVegetable);
+
         CurrentState = CustomerStates.TakeVegetables;
+        SetDestination(shelfPosition);
+        OnTaskReceived?.Invoke(RequiredQuantity, TargetVegetable);
     }
 
     public void OnInventoryCountChanged(int vegetablesCount)
     {
-        if (CurrentState == CustomerStates.TakeVegetables)
-        {
-            if (vegetablesCount >= RequiredQuantity)
-            {
-                Inventory.ForbidTakingVegetables();
-                OnControlTransferred?.Invoke(this);
-                CurrentState = CustomerStates.PayForVegetables;
-                OnRequiredQuantityReached.Invoke();
-            }
-        }
+        if (CurrentState != CustomerStates.TakeVegetables || vegetablesCount < RequiredQuantity)
+            return;
+
+        Inventory.ForbidTakingVegetables();
+        CurrentState = CustomerStates.PayForVegetables;
+        OnControlTransferred?.Invoke(this);
+        OnRequiredQuantityReached?.Invoke();
     }
 
     public void OnMoneyPaid()
     {
-        if (CurrentState == CustomerStates.PayForVegetables)
-        {
-            _meshAgent.SetDestination(_exitPosition);
-            CurrentState = CustomerStates.Leave;
-            OnTaskCompleted.Invoke();
-        }
+        if (CurrentState != CustomerStates.PayForVegetables)
+            return;
+
+        CurrentState = CustomerStates.Leave;
+        SetDestination(_exitPosition);
+        OnTaskCompleted?.Invoke();
+    }
+
+    public void ResetForPool()
+    {
+        if (_meshAgent && _meshAgent.isOnNavMesh)
+            _meshAgent.ResetPath();
+
+        RequiredQuantity = 0;
+        TargetVegetable = null;
+        CurrentState = CustomerStates.Idle;
     }
 }

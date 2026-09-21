@@ -2,7 +2,6 @@ using System;
 using TMPro;
 using UnityEngine;
 
-[RequireComponent(typeof(Collider))]
 public class CashPickup : MonoBehaviour
 {
     [SerializeField] TMP_Text _valueText;
@@ -19,6 +18,8 @@ public class CashPickup : MonoBehaviour
     private void Awake()
     {
         Collider trigger = GetComponent<Collider>();
+        if (!trigger)
+            trigger = gameObject.AddComponent<BoxCollider>();
         trigger.isTrigger = true;
 
         Rigidbody body = GetComponent<Rigidbody>();
@@ -40,7 +41,6 @@ public class CashPickup : MonoBehaviour
     public void SetAmount(int amount)
     {
         _amount = Mathf.Max(0, amount);
-
         if (_valueText)
             _valueText.text = $"₾{_amount}";
     }
@@ -91,7 +91,6 @@ public class CashPickup : MonoBehaviour
 
         Collider collider = instance.GetComponent<Collider>();
         collider.isTrigger = true;
-
         return instance.AddComponent<CashPickup>();
     }
 }

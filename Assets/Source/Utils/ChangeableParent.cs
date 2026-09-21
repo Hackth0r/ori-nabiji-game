@@ -1,29 +1,29 @@
 using UnityEngine;
 using UnityEngine.Events;
 
-public class ChangeableParent: MonoBehaviour
+public class ChangeableParent : MonoBehaviour
 {
     [SerializeField] Transform _transform;
     public UnityEvent OnParentChanged;
 
-    public Transform GetTransform()
+    private void Awake()
     {
-        return _transform;
+        if (!_transform)
+            _transform = transform;
     }
 
-    public Vector3 GetPosition()
-    {
-        return _transform.position;
-    }
+    public Transform GetTransform() => _transform ? _transform : transform;
+    public Vector3 GetPosition() => GetTransform().position;
 
     public void SetParent(Transform targetTransform, bool sendCall = true)
     {
-        _transform.parent = targetTransform;
-        if (sendCall) OnParentChanged.Invoke();
+        GetTransform().SetParent(targetTransform, true);
+        if (sendCall)
+            OnParentChanged?.Invoke();
     }
 
     public void SetLocalPosition(Vector3 localPosition)
     {
-        _transform.localPosition = localPosition;
+        GetTransform().localPosition = localPosition;
     }
 }

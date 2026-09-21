@@ -1,7 +1,6 @@
 using UnityEngine;
 using UnityEngine.Events;
 
-[RequireComponent(typeof(Collider))]
 public class BuySpot : MonoBehaviour
 {
     [SerializeField] Player _player;
@@ -25,15 +24,16 @@ public class BuySpot : MonoBehaviour
         if (!_player)
             _player = FindObjectOfType<Player>();
 
-        _saveKey = SaveKeyUtility.ForComponent(this, "buyspot", _saveId);
-
-        int paid = Mathf.Clamp(SaveGameStore.GetInt(_saveKey + "/paid", 0), 0, _cost);
-        _bought = SaveGameStore.GetBool(_saveKey + "/bought", false) || paid >= _cost;
-        _remainingCost = _bought ? 0 : _cost - paid;
-
         Collider trigger = GetComponent<Collider>();
+        if (!trigger)
+            trigger = gameObject.AddComponent<BoxCollider>();
         trigger.isTrigger = true;
 
+        _saveKey = SaveKeyUtility.ForComponent(this, "buyspot", _saveId);
+        int paid = Mathf.Clamp(SaveGameStore.GetInt(_saveKey + "/paid", 0), 0, _cost);
+
+        _bought = SaveGameStore.GetBool(_saveKey + "/bought", false) || paid >= _cost;
+        _remainingCost = _bought ? 0 : _cost - paid;
         OnCostChanged?.Invoke(_remainingCost);
     }
 
@@ -60,7 +60,7 @@ public class BuySpot : MonoBehaviour
 
     private void FixedUpdate()
     {
-        if (_bought || _playerContacts <= 0 || !_player)
+        if (_bought || _playerContacts <= 0 || !_player || !_player.Account)
             return;
 
         _spendAccumulator += _spendPerSecond * Time.fixedDeltaTime;
@@ -92,6 +92,7 @@ public class BuySpot : MonoBehaviour
 
         _bought = true;
         SaveGameStore.SetBool(_saveKey + "/bought", true);
+        SaveGameStore.Flush();
         OnBought?.Invoke();
         gameObject.SetActive(false);
     }
@@ -108,6 +109,12 @@ public class BuySpot : MonoBehaviour
         Player player = other.GetComponentInParent<Player>();
         if (player && player == _player)
             _playerContacts = Mathf.Max(0, _playerContacts - 1);
+    }
+
+    private void OnDisable()
+    {
+        _playerContacts = 0;
+        _notEnoughRaised = false;
     }
 
     private void OnValidate()

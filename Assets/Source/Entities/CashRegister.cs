@@ -54,6 +54,11 @@ public class CashRegister : MonoBehaviour
             _startPosition = _queueFirstPosition.position;
             _offset = _queueSecondPosition.position - _startPosition;
         }
+        else
+        {
+            _startPosition = transform.position;
+            _offset = transform.forward * 0.8f;
+        }
     }
 
     public void SetAutomaticService(bool value)
@@ -63,7 +68,7 @@ public class CashRegister : MonoBehaviour
 
     public void SubscribeOnCustomer(Customer customer)
     {
-        if (customer != null)
+        if (customer)
             customer.OnControlTransferred += EnqueueCustomer;
     }
 
@@ -109,7 +114,7 @@ public class CashRegister : MonoBehaviour
     private IEnumerator _Serve()
     {
         Customer customer = _currentCustomer;
-        if (!customer)
+        if (!customer || !customer.Box)
         {
             _currentCustomer = null;
             yield break;
@@ -128,7 +133,8 @@ public class CashRegister : MonoBehaviour
         VegetableInventory checkoutInventory = customer.Box.VegetableInventory;
         float timeout = 5f;
 
-        while (customer && customer.Inventory.HasItems() && checkoutInventory.HasFreeSpace() && timeout > 0f)
+        while (customer && checkoutInventory && customer.Inventory.HasItems() &&
+               checkoutInventory.HasFreeSpace() && timeout > 0f)
         {
             VegetableInventory.TryTransferVegetable(customer.Inventory, checkoutInventory);
             float wait = Mathf.Max(0.02f, checkoutInventory.AddingCooldown);
@@ -145,7 +151,8 @@ public class CashRegister : MonoBehaviour
         customer.ReturnBoxToParent();
         yield return new WaitForSeconds(animationDuration);
 
-        int money = Mathf.Max(0, customer.RequiredQuantity * customer.TargetVegetable.PricePerUnit);
+        int unitPrice = customer.TargetVegetable ? customer.TargetVegetable.PricePerUnit : 0;
+        int money = Mathf.Max(0, customer.RequiredQuantity * unitPrice);
         _AddPendingCash(money);
 
         customer.OnMoneyPaid();
@@ -163,14 +170,14 @@ public class CashRegister : MonoBehaviour
             return;
 
         long total = (long)_pendingCash + amount;
-        _pendingCash = (int)Mathf.Min(int.MaxValue, total);
+        _pendingCash = total > int.MaxValue ? int.MaxValue : (int)total;
         SaveGameStore.SetInt(_saveKey + "/cash", _pendingCash);
         _EnsureCashPickup();
     }
 
     private void _EnsureCashPickup()
     {
-        if (_pendingCash <= 0)
+        if (_pendingCash <= 0 || !_player || !_player.Account)
             return;
 
         if (_cashPickup)
@@ -179,13 +186,15 @@ public class CashRegister : MonoBehaviour
             return;
         }
 
-        Vector3 position = _cashSpawnPosition ? _cashSpawnPosition.position : transform.position + transform.right * 0.8f;
+        Vector3 position = _cashSpawnPosition
+            ? _cashSpawnPosition.position
+            : transform.position + transform.right * 0.8f;
 
         _cashPickup = _cashPickupPrefab
             ? Instantiate(_cashPickupPrefab, position, Quaternion.identity)
             : CashPickup.CreateRuntime(position);
 
-        _cashPickup.Initialize(_player ? _player.Account : null, _pendingCash, _OnCashCollected);
+        _cashPickup.Initialize(_player.Account, _pendingCash, _OnCashCollected);
     }
 
     private void _OnCashCollected(int amount)
