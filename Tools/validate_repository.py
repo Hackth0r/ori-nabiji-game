@@ -33,6 +33,9 @@ if "enabled: 1" not in build_settings or "Assets/Scenes/SampleScene.unity" not i
     errors.append("SampleScene is not enabled in EditorBuildSettings.")
 
 player_settings = (ROOT / "ProjectSettings" / "ProjectSettings.asset").read_text(encoding="utf-8")
+if "\\n" in player_settings:
+    errors.append("ProjectSettings contains a literal escaped newline; YAML serialization is invalid.")
+
 for required in [
     "productName: Ori Nabiji Game",
     "companyName: Hackth0r",
