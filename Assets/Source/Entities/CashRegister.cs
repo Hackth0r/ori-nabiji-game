@@ -11,6 +11,10 @@ public class CashRegister : MonoBehaviour
     [SerializeField] Transform _queueSecondPosition;
     [Space]
     [SerializeField] Transform _boxPosition;
+    [Header("Mini Mart cash pickup")]
+    [SerializeField] CashPickup _cashPickupPrefab;
+    [SerializeField] Transform _cashSpawnPosition;
+
     Queue<Customer> _customersQueue = new();
     Vector3 _startPosition;
     Vector3 _offset;
@@ -69,30 +73,59 @@ public class CashRegister : MonoBehaviour
     {
         _currentCustomer.Box.SetActive(true);
         _currentCustomer.Box.ChangeableParent.SetParent(_boxPosition);
+
         float animationDuration = _currentCustomer.Box.TranslationAnimator
             .DefaultAnimationSettings.AnimationDuration;
+
         yield return new WaitForSeconds(animationDuration);
+
         while (_currentCustomer.Inventory.HasItems())
         {
-            VegetableInventory.TransferVegetables(_currentCustomer.Inventory, _currentCustomer.Box.VegetableInventory);
-            yield return new WaitForSeconds(_currentCustomer.Box.VegetableInventory.AddingCooldown);
+            VegetableInventory.TransferVegetables(
+                _currentCustomer.Inventory,
+                _currentCustomer.Box.VegetableInventory);
+
+            yield return new WaitForSeconds(
+                _currentCustomer.Box.VegetableInventory.AddingCooldown);
         }
+
         _currentCustomer.ReturnBoxToParent();
         yield return new WaitForSeconds(animationDuration);
-        int money = _currentCustomer.RequiredQuantity * _currentCustomer.TargetVegetable.PricePerUnit;
-        _player.Account.AddMoney(money);
+
+        int money = _currentCustomer.RequiredQuantity *
+            _currentCustomer.TargetVegetable.PricePerUnit;
+
+        _CreateCash(money);
+
         _currentCustomer.OnMoneyPaid();
         _currentCustomer = null;
         _customersQueue.Dequeue();
         _MoveCustomers();
     }
 
+    private void _CreateCash(int amount)
+    {
+        if (_cashPickupPrefab && _cashSpawnPosition)
+        {
+            CashPickup pickup = Instantiate(
+                _cashPickupPrefab,
+                _cashSpawnPosition.position,
+                _cashSpawnPosition.rotation);
+
+            pickup.Initialize(_player.Account, amount);
+        }
+        else
+        {
+            // Backwards-compatible fallback until the cash prefab is wired in.
+            _player.Account.AddMoney(amount);
+        }
+    }
+
     private void OnTriggerStay(Collider other)
     {
         if (_currentCustomer) return;
+
         if (other.TryGetComponent(out Player player))
-        {
             _TryToServeCustomer();
-        }
     }
 }
